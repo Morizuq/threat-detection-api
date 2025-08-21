@@ -18,29 +18,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+import logging
+from datetime import datetime
+
+# Create timestamped log file
+log_filename = f"logs_{datetime.now().strftime('%Y-%m-%d')}.log"
+
+logging.basicConfig(
+    filename=log_filename,
+    filemode="a",  # append mode
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=logging.INFO,
+)
+
+logger = logging.getLogger(__name__)
+
 
 @app.get("/")
 async def root():
     return {"message": "Welcome to the Farm Threat Detection API!"}
 
 @app.post("/detect")
-async def detect(file: UploadFile = File(...),  
-                 phone_number: str = Form(...),
-                 ):
-    # Read image bytes
-    image_bytes = await file.read()
-    np_array = np.frombuffer(image_bytes, np.uint8)
-    image = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+async def detect(file: UploadFile = File(...), phone_number: str = Form(...)):
+    logger.info("📥 Request received")
 
-    # Detect using YOLOv8
-    detections = detect_objects(image)
+    try:
+        image_bytes = await file.read()
+        np_array = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
 
-    if detections:
-        # Prepare SMS message
-        labels = [d["label"] for d in detections]
-        message = f"Alert from Yolo: {', '.join(labels)} detected on your farm."
+        logger.info("⚙️ Processing image")
 
-        # Send SMS using Termii
-        send_sms_termii(phone_number, message)
+        detections = detect_objects(image)
 
-    return {"threats": detections}
+        if detections:
+            labels = [d["label"] for d in detections]
+            message = f"🚨 Alert from YOLO: {', '.join(labels)}"
+            logger.info(f"✅ Threats detected: {labels}")
+            send_sms_termii(phone_number, message)
+        else:
+            logger.info("✅ No threats detected.")
+
+        return {"threats": detections}
+
+    except Exception as e:
+        logger.error(f"❌ Error during detection: {str(e)}")
+        return {"error": "Internal Server Error"}
